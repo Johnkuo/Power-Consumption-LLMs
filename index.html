@@ -1,0 +1,18 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>大模型部署能耗估算工具</title>
+    <script src="script.js"></script>
+</head>
+<body>
+    <h2>大模型本地化部署能耗预测</h2>
+    <label>模型规模 (B): <input id="model_size" type="number" step="any"></label><br>
+    <label>GPU 数量: <input id="gpus" type="number"></label><br>
+    <label>Batch Size: <input id="batch_size" type="number"></label><br>
+    <label>并发度: <input id="parallel" type="number"></label><br>
+    <label>数据量: <input id="data_size" type="number"></label><br><br>
+    <button onclick="run()">开始预测</button>
+    <p id="result"></p>
+</body>
+</html>
