@@ -3,81 +3,71 @@
 <html lang="zh">
 <head>
     <meta charset="UTF-8">
-    <title>大模型显存估算器（修正版GraphRAG）</title>
+    <title>大模型运行时预测工具（简洁版）</title>
     <style>
-        body { font-family: Arial, sans-serif; padding: 20px; }
-        h2 { color: #2c3e50; }
-        label { display: block; margin-top: 10px; }
-        input { padding: 5px; margin-top: 5px; width: 200px; }
-        table { margin-top: 20px; border-collapse: collapse; width: 100%; }
-        th, td { border: 1px solid #ddd; padding: 8px; text-align: center; }
-        th { background-color: #f2f2f2; }
-        #result { margin-top: 20px; }
+        body { font-family: sans-serif; margin: 40px; }
+        input, button { margin: 10px 0; padding: 6px; }
+        .output { margin-top: 20px; font-weight: bold; }
     </style>
 </head>
 <body>
-    <h2>大模型显存估算器（多精度 + GraphRAG 修正）</h2>
-    <label for="modelSize">模型规模（单位：Billion 参数量，例如32）:</label>
-    <input type="number" id="modelSize" placeholder="例如：32" step="1">
-    <button onclick="calculate()">计算显存</button>
+    <h1>大模型运行时预测工具（简洁变量名+显存判断）</h1>
+    <label>GPU 数量：<input id="gpus" type="number" min="1" value="2"></label><br>
+    <label>模型规模（B）：<input id="modelSize" type="number" min="1" value="7"></label><br>
+    <label>数据量（K）：<input id="dataSize" type="number" min="1" value="50"></label><br>
+    <label>BatchSize：<input id="batchSize" type="number" min="1" value="2"></label><br>
+    <button onclick="predict()">预测运行时间</button>
 
-    <div id="result"></div>
+    <div class="output" id="result"></div>
 
     <script>
-        function calculate() {
-            const modelSize = parseFloat(document.getElementById("modelSize").value);
-            if (isNaN(modelSize)) {
-                document.getElementById("result").innerText = "请输入模型规模（单位：Billion）";
+        const model = {"intercept": 3.983325853386905, "coefficients": {"gpus": -0.04305697557485244, "modelSize": -0.04011506438876738, "dataSize": 0.4590145621573876, "batchSize": -0.14116794841150268, "gpus^2": -0.11660045136432906, "gpus modelSize": -0.17012365529123175, "gpus dataSize": -0.0583582857422202, "gpus batchSize": -0.0642758654364345, "modelSize^2": 0.13890886009843553, "modelSize dataSize": 0.023702858558625185, "modelSize batchSize": -0.09862853686435243, "dataSize^2": 0.06891469008194746, "dataSize batchSize": -0.11340823734016565, "batchSize^2": -0.08644635691128846}, "memoryPerGPU": 40, "memoryFormula": "2 * modelSize + 10"};
+
+        function log1p(x) { return Math.log(1 + x); }
+        function expm1(x) { return Math.exp(x) - 1; }
+
+        function predict() {
+            const gpus = parseFloat(document.getElementById('gpus').value);
+            const modelSize = parseFloat(document.getElementById('modelSize').value);
+            const dataSize = parseFloat(document.getElementById('dataSize').value);
+            const batchSize = parseFloat(document.getElementById('batchSize').value);
+
+            if ([gpus, modelSize, dataSize, batchSize].some(x => isNaN(x) || x <= 0)) {
+                document.getElementById('result').innerHTML = "❗ 所有输入必须为正数。";
                 return;
             }
 
-            const precisions = {
-                "FP32": 4,
-                "FP16/BF16": 2,
-                "INT8": 1,
-                "INT4": 0.5
-            };
-
-            let html = `<table>
-                <tr>
-                    <th>精度</th>
-                    <th>推理显存 (GB)</th>
-                    <th>LoRA 微调显存 (GB)</th>
-                    <th>GraphRAG 显存 (GB)</th>
-                </tr>`;
-
-            for (let key in precisions) {
-                const bytesPerParam = precisions[key];
-
-                // 权重显存
-                const weightMemory = modelSize * 1e9 * bytesPerParam / (1024 ** 3);
-
-                // 通用激活/通信开销
-                const activationMemory = 5;
-                const overheadMemory = 5;
-
-                // 推理总显存
-                const inferenceTotal = weightMemory + activationMemory + overheadMemory;
-
-                // LoRA 相关：参数 + 梯度 + 优化器状态（3x）
-                const loraParamRatio = 0.015;
-                const loraParamMemory = modelSize * 1e9 * loraParamRatio * 2 / (1024 ** 3);
-                const loraGradOptMemory = loraParamMemory * 3;
-                const loraTotal = inferenceTotal + loraParamMemory + loraGradOptMemory;
-
-                // GraphRAG 显存 = 推理 + 2.0GB（用于 bge-m3 向量模型）
-                const graphragTotal = inferenceTotal + 2.0;
-
-                html += `<tr>
-                    <td>${key}</td>
-                    <td>${inferenceTotal.toFixed(2)}</td>
-                    <td>${loraTotal.toFixed(2)}</td>
-                    <td>${graphragTotal.toFixed(2)}</td>
-                </tr>`;
+            const totalMemory = gpus * model.memoryPerGPU;
+            const requiredMemory = 2 * modelSize + 10;
+            if (requiredMemory > totalMemory) {
+                document.getElementById('result').innerHTML =
+                    `❌ 显存不足：模型需约 ${requiredMemory}GB，总显存仅 ${totalMemory}GB。请增加 GPU 数量或降低模型规模。`;
+                return;
             }
 
-            html += "</table>";
-            document.getElementById("result").innerHTML = html;
+            const x = {
+                gpus: log1p(gpus),
+                modelSize: log1p(modelSize),
+                dataSize: log1p(dataSize),
+                batchSize: log1p(batchSize)
+            };
+
+            let y = model.intercept;
+            for (let term in model.coefficients) {
+                let value = 1;
+                const vars = term.split(' ');
+                for (let v of vars) {
+                    if (v.endsWith('^2')) {
+                        const base = v.replace('^2', '');
+                        value *= x[base] * x[base];
+                    } else {
+                        value *= x[v];
+                    }
+                }
+                y += model.coefficients[term] * value;
+            }
+            const runtime = expm1(y).toFixed(2);
+            document.getElementById('result').innerHTML = `✅ 预测运行时间为 <b>${runtime}</b> 秒。`;
         }
     </script>
 </body>
