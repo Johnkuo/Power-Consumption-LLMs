@@ -3,81 +3,138 @@
 <html lang="zh">
 <head>
     <meta charset="UTF-8">
-    <title>LoRA & GraphRAG 运行时预测工具</title>
+    <title>大模型运行效率预测工具 v2</title>
     <style>
-        body { font-family: sans-serif; margin: 40px; }
-        input, button { margin: 10px 0; padding: 6px; }
-        .output { margin-top: 20px; font-weight: bold; }
+        body { font-family: sans-serif; padding: 20px; display: flex; flex-wrap: wrap; gap: 30px; }
+        .panel { width: 30%; min-width: 300px; border: 1px solid #ccc; border-radius: 10px; padding: 20px; }
+        input { width: 80px; margin: 4px; }
+        button { margin-top: 10px; }
+        .output { margin-top: 12px; font-weight: bold; }
     </style>
 </head>
 <body>
-    <h1>LoRA 与 GraphRAG 运行时预测工具（含显存判断）</h1>
-    <label>GPU 数量：<input id="gpus" type="number" min="1" value="2"></label><br>
-    <label>模型规模（B）：<input id="modelSize" type="number" min="1" value="7"></label><br>
-    <label>数据量（K）：<input id="dataSize" type="number" min="1" value="50"></label><br>
-    <label>BatchSize（LoRA专用）：<input id="batchSize" type="number" min="1" value="2"></label><br>
-    <button onclick="predict()">预测运行时间</button>
+    <div class="panel">
+        <h2>LoRA / GraphRAG 运行时间预测</h2>
+        <label>GPU 数量：<input id="gpus1" type="number" value="2"></label><br>
+        <label>模型规模（B）：<input id="modelSize1" type="number" value="7"></label><br>
+        <label>数据量（K）：<input id="dataSize1" type="number" value="50"></label><br>
+        <label>BatchSize：<input id="batchSize1" type="number" value="2"></label><br>
+        <button onclick="predictLoraGraph()">预测运行时间</button>
+        <div class="output" id="result1"></div>
+    </div>
 
-    <div class="output" id="result"></div>
+    <div class="panel">
+        <h2>推理吞吐量与运行时预测</h2>
+        <label>GPU 数量：<input id="gpus2" type="number" value="2"></label><br>
+        <label>模型规模（B）：<input id="modelSize2" type="number" value="7"></label><br>
+        <label>并发度 Parallel：<input id="parallel" type="number" value="8"></label><br>
+        <label>生成 Token 数：<input id="tokens" type="number" value="1024"></label><br>
+        <button onclick="predictInference()">预测吞吐量与运行时间</button>
+        <div class="output" id="result2"></div>
+    </div>
 
-    <script>
-        const loraModel = {"intercept": 3.983325853386905, "coefficients": {"gpus": -0.04305697557485244, "modelSize": -0.04011506438876738, "dataSize": 0.4590145621573876, "batchSize": -0.14116794841150268, "gpus^2": -0.11660045136432906, "gpus modelSize": -0.17012365529123175, "gpus dataSize": -0.0583582857422202, "gpus batchSize": -0.0642758654364345, "modelSize^2": 0.13890886009843553, "modelSize dataSize": 0.023702858558625185, "modelSize batchSize": -0.09862853686435243, "dataSize^2": 0.06891469008194746, "dataSize batchSize": -0.11340823734016565, "batchSize^2": -0.08644635691128846}, "memoryPerGPU": 40, "memoryFormula": "2 * modelSize + 10"};
-        const graphragModel = {"intercept": 1.226, "coefficients": {"gpus": -0.039, "modelSize": 0.329, "dataSize": 0.561, "gpus^2": -0.106, "gpus modelSize": -0.251, "gpus dataSize": 0.061, "modelSize^2": 0.107, "modelSize dataSize": 0.006, "dataSize^2": 0.017}};
+    <div class="panel">
+        <h2>首 Token 响应时间（TTFT）预测</h2>
+        <label>GPU 数量：<input id="gpus3" type="number" value="2"></label><br>
+        <label>模型规模（B）：<input id="modelSize3" type="number" value="7"></label><br>
+        <label>并发度 Parallel：<input id="parallel3" type="number" value="8"></label><br>
+        <label>输入 Token 数：<input id="inToken3" type="number" value="128"></label><br>
+        <button onclick="predictTTFT()">预测 TTFT</button>
+        <div class="output" id="result3"></div>
+    </div>
 
-        function log1p(x) { return Math.log(1 + x); }
-        function expm1(x) { return Math.exp(x) - 1; }
+<script>
+const models = {"lora": {"intercept": 3.983, "coefficients": {"gpus": -0.043, "modelSize": -0.04, "dataSize": 0.459, "batchSize": -0.141, "gpus^2": -0.117, "gpus modelSize": -0.17, "gpus dataSize": -0.058, "gpus batchSize": -0.064, "modelSize^2": 0.139, "modelSize dataSize": 0.024, "modelSize batchSize": -0.099, "dataSize^2": 0.069, "dataSize batchSize": -0.113, "batchSize^2": -0.086}, "memoryPerGPU": 40, "clip_min": 0}, "graph": {"intercept": 1.226, "coefficients": {"gpus": -0.039, "modelSize": 0.329, "dataSize": 0.561, "gpus^2": -0.106, "gpus modelSize": -0.251, "gpus dataSize": 0.061, "modelSize^2": 0.107, "modelSize dataSize": 0.006, "dataSize^2": 0.017}, "memoryPerGPU": 40, "clip_min": 0}, "inference": {"intercept": 4.459, "coefficients": {"gpus": 0.003, "modelSize": -0.515, "parallel": 1.785, "gpus^2": 0.007, "gpus modelSize": 0.395, "gpus parallel": -0.142, "modelSize^2": -0.186, "modelSize parallel": 0.124, "parallel^2": -0.191}, "memoryPerGPU": 40, "clip_min": 0}, "ttft": {"intercept": 0.9003229797112446, "coefficients": {"gpus": 0.14733460021304215, "model_size": -0.7129476568122275, "parallel": -0.6766339441224599, "in_token": -0.0007477731212166298, "gpus^2": 0.39898949373572895, "gpus model_size": -0.18808990210132176, "gpus parallel": -0.13317860686730656, "gpus in_token": -0.12337050525054118, "model_size^2": 0.05968106258425304, "model_size parallel": 0.11517830823654686, "model_size in_token": 0.1051373387002992, "parallel^2": 0.05205877382672815, "parallel in_token": 0.09288142095021779, "in_token^2": -0.00933588723941364}, "clip_min": 0.1, "memoryPerGPU": 40}};
+function log1p(x) { return Math.log(1 + x); }
+function expm1(x) { return Math.exp(x) - 1; }
 
-        function predictRuntime(model, inputs) {
-            let y = model.intercept;
-            for (let term in model.coefficients) {
-                let value = 1;
-                const vars = term.split(' ');
-                for (let v of vars) {
-                    if (v.endsWith('^2')) {
-                        const base = v.replace('^2', '');
-                        value *= inputs[base] * inputs[base];
-                    } else {
-                        value *= inputs[v];
-                    }
-                }
-                y += model.coefficients[term] * value;
+function predict(model, inputs) {
+    let y = model.intercept;
+    for (let term in model.coefficients) {
+        let value = 1;
+        const vars = term.split(" ");
+        for (let v of vars) {
+            if (v.endsWith("^2")) {
+                const base = v.replace("^2", "");
+                value *= inputs[base] * inputs[base];
+            } else {
+                value *= inputs[v];
             }
-            return expm1(y).toFixed(2);
         }
+        y += model.coefficients[term] * value;
+    }
+    return Math.max(model.clip_min || 0, expm1(y));
+}
 
-        function predict() {
-            const gpus = parseFloat(document.getElementById('gpus').value);
-            const modelSize = parseFloat(document.getElementById('modelSize').value);
-            const dataSize = parseFloat(document.getElementById('dataSize').value);
-            const batchSize = parseFloat(document.getElementById('batchSize').value);
+function predictLoraGraph() {
+    const gpus = parseFloat(document.getElementById("gpus1").value);
+    const modelSize = parseFloat(document.getElementById("modelSize1").value);
+    const dataSize = parseFloat(document.getElementById("dataSize1").value);
+    const batchSize = parseFloat(document.getElementById("batchSize1").value);
+    const totalMem = gpus * models.lora.memoryPerGPU;
+    const requiredMem = 2 * modelSize + 10;
 
-            if ([gpus, modelSize, dataSize, batchSize].some(x => isNaN(x) || x <= 0)) {
-                document.getElementById('result').innerHTML = "❗ 所有输入必须为正数。";
-                return;
-            }
+    if (requiredMem > totalMem) {
+        document.getElementById("result1").innerHTML = `❌ 显存不足，需 ${requiredMem}GB，仅有 ${totalMem}GB`;
+        return;
+    }
 
-            const totalMemory = gpus * loraModel.memoryPerGPU;
-            const requiredMemory = 2 * modelSize + 10;
-            if (requiredMemory > totalMemory) {
-                document.getElementById('result').innerHTML =
-                    `❌ 显存不足：模型需约 ${requiredMemory}GB，总显存仅 ${totalMemory}GB。请增加 GPU 数量或降低模型规模。`;
-                return;
-            }
+    const log_input = {
+        gpus: log1p(gpus), modelSize: log1p(modelSize),
+        dataSize: log1p(dataSize), batchSize: log1p(batchSize)
+    };
+    const input_graph = {
+        gpus: log_input.gpus, modelSize: log_input.modelSize,
+        dataSize: log_input.dataSize
+    };
+    const resultLora = predict(models.lora, log_input).toFixed(2);
+    const resultGraph = predict(models.graph, input_graph).toFixed(2);
+    document.getElementById("result1").innerHTML =
+        `✅ LoRA 运行时间：<b>${resultLora}</b> 秒<br>✅ GraphRAG 运行时间：<b>${resultGraph}</b> 秒`;
+}
 
-            const x = {
-                gpus: log1p(gpus),
-                modelSize: log1p(modelSize),
-                dataSize: log1p(dataSize),
-                batchSize: log1p(batchSize)
-            };
+function predictInference() {
+    const gpus = parseFloat(document.getElementById("gpus2").value);
+    const modelSize = parseFloat(document.getElementById("modelSize2").value);
+    const parallel = parseFloat(document.getElementById("parallel").value);
+    const tokens = parseFloat(document.getElementById("tokens").value);
+    const totalMem = gpus * models.inference.memoryPerGPU;
+    const requiredMem = 2 * modelSize + 10;
 
-            const lora_runtime = predictRuntime(loraModel, x);
-            const graph_runtime = predictRuntime(graphragModel, x);
+    if (requiredMem > totalMem) {
+        document.getElementById("result2").innerHTML = `❌ 显存不足，需 ${requiredMem}GB，仅有 ${totalMem}GB`;
+        return;
+    }
 
-            document.getElementById('result').innerHTML =
-                `✅ LoRA 预测运行时间：<b>${lora_runtime}</b> 秒<br>` +
-                `✅ GraphRAG 预测运行时间：<b>${graph_runtime}</b> 秒`;
-        }
-    </script>
+    const log_input = {
+        gpus: log1p(gpus), modelSize: log1p(modelSize), parallel: log1p(parallel)
+    };
+    const throughput = predict(models.inference, log_input);
+    const time = tokens / throughput;
+    document.getElementById("result2").innerHTML =
+        `✅ 吞吐量：<b>${throughput.toFixed(2)}</b> tok/s<br>✅ 估计生成时间：<b>${time.toFixed(2)}</b> 秒`;
+}
+
+function predictTTFT() {
+    const gpus = parseFloat(document.getElementById("gpus3").value);
+    const modelSize = parseFloat(document.getElementById("modelSize3").value);
+    const parallel = parseFloat(document.getElementById("parallel3").value);
+    const inToken = parseFloat(document.getElementById("inToken3").value);
+    const totalMem = gpus * models.ttft.memoryPerGPU;
+    const requiredMem = 2 * modelSize + 10;
+
+    if (requiredMem > totalMem) {
+        document.getElementById("result3").innerHTML = `❌ 显存不足，需 ${requiredMem}GB，仅有 ${totalMem}GB`;
+        return;
+    }
+
+    const log_input = {
+        gpus: log1p(gpus), model_size: log1p(modelSize),
+        parallel: log1p(parallel), in_token: log1p(inToken)
+    };
+    const result = predict(models.ttft, log_input).toFixed(3);
+    document.getElementById("result3").innerHTML = `✅ 预测 TTFT：<b>${result}</b> 秒`;
+}
+</script>
 </body>
 </html>
