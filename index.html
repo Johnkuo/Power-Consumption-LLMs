@@ -3,7 +3,7 @@
 <html lang="zh">
 <head>
     <meta charset="UTF-8">
-    <title>大模型运行时预测工具（简洁版）</title>
+    <title>LoRA & GraphRAG 运行时预测工具</title>
     <style>
         body { font-family: sans-serif; margin: 40px; }
         input, button { margin: 10px 0; padding: 6px; }
@@ -11,20 +11,39 @@
     </style>
 </head>
 <body>
-    <h1>大模型运行时预测工具（简洁变量名+显存判断）</h1>
+    <h1>LoRA 与 GraphRAG 运行时预测工具（含显存判断）</h1>
     <label>GPU 数量：<input id="gpus" type="number" min="1" value="2"></label><br>
     <label>模型规模（B）：<input id="modelSize" type="number" min="1" value="7"></label><br>
     <label>数据量（K）：<input id="dataSize" type="number" min="1" value="50"></label><br>
-    <label>BatchSize：<input id="batchSize" type="number" min="1" value="2"></label><br>
+    <label>BatchSize（LoRA专用）：<input id="batchSize" type="number" min="1" value="2"></label><br>
     <button onclick="predict()">预测运行时间</button>
 
     <div class="output" id="result"></div>
 
     <script>
-        const model = {"intercept": 3.983325853386905, "coefficients": {"gpus": -0.04305697557485244, "modelSize": -0.04011506438876738, "dataSize": 0.4590145621573876, "batchSize": -0.14116794841150268, "gpus^2": -0.11660045136432906, "gpus modelSize": -0.17012365529123175, "gpus dataSize": -0.0583582857422202, "gpus batchSize": -0.0642758654364345, "modelSize^2": 0.13890886009843553, "modelSize dataSize": 0.023702858558625185, "modelSize batchSize": -0.09862853686435243, "dataSize^2": 0.06891469008194746, "dataSize batchSize": -0.11340823734016565, "batchSize^2": -0.08644635691128846}, "memoryPerGPU": 40, "memoryFormula": "2 * modelSize + 10"};
+        const loraModel = {"intercept": 3.983325853386905, "coefficients": {"gpus": -0.04305697557485244, "modelSize": -0.04011506438876738, "dataSize": 0.4590145621573876, "batchSize": -0.14116794841150268, "gpus^2": -0.11660045136432906, "gpus modelSize": -0.17012365529123175, "gpus dataSize": -0.0583582857422202, "gpus batchSize": -0.0642758654364345, "modelSize^2": 0.13890886009843553, "modelSize dataSize": 0.023702858558625185, "modelSize batchSize": -0.09862853686435243, "dataSize^2": 0.06891469008194746, "dataSize batchSize": -0.11340823734016565, "batchSize^2": -0.08644635691128846}, "memoryPerGPU": 40, "memoryFormula": "2 * modelSize + 10"};
+        const graphragModel = {"intercept": 1.226, "coefficients": {"gpus": -0.039, "modelSize": 0.329, "dataSize": 0.561, "gpus^2": -0.106, "gpus modelSize": -0.251, "gpus dataSize": 0.061, "modelSize^2": 0.107, "modelSize dataSize": 0.006, "dataSize^2": 0.017}};
 
         function log1p(x) { return Math.log(1 + x); }
         function expm1(x) { return Math.exp(x) - 1; }
+
+        function predictRuntime(model, inputs) {
+            let y = model.intercept;
+            for (let term in model.coefficients) {
+                let value = 1;
+                const vars = term.split(' ');
+                for (let v of vars) {
+                    if (v.endsWith('^2')) {
+                        const base = v.replace('^2', '');
+                        value *= inputs[base] * inputs[base];
+                    } else {
+                        value *= inputs[v];
+                    }
+                }
+                y += model.coefficients[term] * value;
+            }
+            return expm1(y).toFixed(2);
+        }
 
         function predict() {
             const gpus = parseFloat(document.getElementById('gpus').value);
@@ -37,7 +56,7 @@
                 return;
             }
 
-            const totalMemory = gpus * model.memoryPerGPU;
+            const totalMemory = gpus * loraModel.memoryPerGPU;
             const requiredMemory = 2 * modelSize + 10;
             if (requiredMemory > totalMemory) {
                 document.getElementById('result').innerHTML =
@@ -52,22 +71,12 @@
                 batchSize: log1p(batchSize)
             };
 
-            let y = model.intercept;
-            for (let term in model.coefficients) {
-                let value = 1;
-                const vars = term.split(' ');
-                for (let v of vars) {
-                    if (v.endsWith('^2')) {
-                        const base = v.replace('^2', '');
-                        value *= x[base] * x[base];
-                    } else {
-                        value *= x[v];
-                    }
-                }
-                y += model.coefficients[term] * value;
-            }
-            const runtime = expm1(y).toFixed(2);
-            document.getElementById('result').innerHTML = `✅ 预测运行时间为 <b>${runtime}</b> 秒。`;
+            const lora_runtime = predictRuntime(loraModel, x);
+            const graph_runtime = predictRuntime(graphragModel, x);
+
+            document.getElementById('result').innerHTML =
+                `✅ LoRA 预测运行时间：<b>${lora_runtime}</b> 秒<br>` +
+                `✅ GraphRAG 预测运行时间：<b>${graph_runtime}</b> 秒`;
         }
     </script>
 </body>
