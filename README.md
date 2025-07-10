@@ -68,7 +68,3 @@
 
 ---
 
-## 📁 文件说明
-
-- `llm_prediction_suite_v3_final_allrestored_fully.html`：最终版 HTML 工具页面，集成所有模型与计算逻辑
-- `llm_final_model_parameters.json`：六个模型的完整参数文件，可用于还原预测逻辑
