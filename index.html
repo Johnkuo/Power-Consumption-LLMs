@@ -3,7 +3,7 @@
 <html lang="zh">
 <head>
     <meta charset="UTF-8">
-    <title>大模型运行效率预测工具 v2</title>
+    <title>大模型运行效率预测工具 v3</title>
     <style>
         body { font-family: sans-serif; padding: 20px; display: flex; flex-wrap: wrap; gap: 30px; }
         .panel { width: 30%; min-width: 300px; border: 1px solid #ccc; border-radius: 10px; padding: 20px; }
@@ -14,12 +14,12 @@
 </head>
 <body>
     <div class="panel">
-        <h2>LoRA / GraphRAG 运行时间预测</h2>
+        <h2>LoRA / GraphRAG 运行时间与能耗预测</h2>
         <label>GPU 数量：<input id="gpus1" type="number" value="2"></label><br>
         <label>模型规模（B）：<input id="modelSize1" type="number" value="7"></label><br>
         <label>数据量（K）：<input id="dataSize1" type="number" value="50"></label><br>
         <label>BatchSize：<input id="batchSize1" type="number" value="2"></label><br>
-        <button onclick="predictLoraGraph()">预测运行时间</button>
+        <button onclick="predictLoraGraph()">预测运行时间与能耗</button>
         <div class="output" id="result1"></div>
     </div>
 
@@ -44,7 +44,10 @@
     </div>
 
 <script>
+const graphragInferencePower = {"intercept": 122.23577803608663, "coefficients": {"gpus": -8.343333480178465, "modelSize": 76.42476456152792, "gpus^2": -22.594165908860106, "gpus modelSize": 9.47144295566909, "modelSize^2": -8.137236409208446}, "memoryPerGPU": 40, "clip_min": 0};
 const models = {"lora": {"intercept": 3.983, "coefficients": {"gpus": -0.043, "modelSize": -0.04, "dataSize": 0.459, "batchSize": -0.141, "gpus^2": -0.117, "gpus modelSize": -0.17, "gpus dataSize": -0.058, "gpus batchSize": -0.064, "modelSize^2": 0.139, "modelSize dataSize": 0.024, "modelSize batchSize": -0.099, "dataSize^2": 0.069, "dataSize batchSize": -0.113, "batchSize^2": -0.086}, "memoryPerGPU": 40, "clip_min": 0}, "graph": {"intercept": 1.226, "coefficients": {"gpus": -0.039, "modelSize": 0.329, "dataSize": 0.561, "gpus^2": -0.106, "gpus modelSize": -0.251, "gpus dataSize": 0.061, "modelSize^2": 0.107, "modelSize dataSize": 0.006, "dataSize^2": 0.017}, "memoryPerGPU": 40, "clip_min": 0}, "inference": {"intercept": 4.459, "coefficients": {"gpus": 0.003, "modelSize": -0.515, "parallel": 1.785, "gpus^2": 0.007, "gpus modelSize": 0.395, "gpus parallel": -0.142, "modelSize^2": -0.186, "modelSize parallel": 0.124, "parallel^2": -0.191}, "memoryPerGPU": 40, "clip_min": 0}, "ttft": {"intercept": 0.9003229797112446, "coefficients": {"gpus": 0.14733460021304215, "model_size": -0.7129476568122275, "parallel": -0.6766339441224599, "in_token": -0.0007477731212166298, "gpus^2": 0.39898949373572895, "gpus model_size": -0.18808990210132176, "gpus parallel": -0.13317860686730656, "gpus in_token": -0.12337050525054118, "model_size^2": 0.05968106258425304, "model_size parallel": 0.11517830823654686, "model_size in_token": 0.1051373387002992, "parallel^2": 0.05205877382672815, "parallel in_token": 0.09288142095021779, "in_token^2": -0.00933588723941364}, "clip_min": 0.1, "memoryPerGPU": 40}};
+const loraPower = {"intercept": -230.31836161397814, "coefficients": {"gpus": -4.69178961547982, "modelSize": 193.97719851506406, "batchSize": 296.8702275898768, "gpus^2": -12.705601811730105, "gpus modelSize": -8.153997305199255, "gpus batchSize": 17.58010480377095, "modelSize^2": -26.272456792504727, "modelSize batchSize": 12.656396041268863, "batchSize^2": -102.2681995284161}, "memoryPerGPU": 40, "clip_min": 0};
+
 function log1p(x) { return Math.log(1 + x); }
 function expm1(x) { return Math.exp(x) - 1; }
 
@@ -65,6 +68,7 @@ function predict(model, inputs) {
     }
     return Math.max(model.clip_min || 0, expm1(y));
 }
+
 
 function predictLoraGraph() {
     const gpus = parseFloat(document.getElementById("gpus1").value);
@@ -87,11 +91,63 @@ function predictLoraGraph() {
         gpus: log_input.gpus, modelSize: log_input.modelSize,
         dataSize: log_input.dataSize
     };
-    const resultLora = predict(models.lora, log_input).toFixed(2);
-    const resultGraph = predict(models.graph, input_graph).toFixed(2);
+    const resultLora = predict(models.lora, log_input);
+    const resultGraph = predict(models.graph, input_graph);
+
+    
+    const power_input = {
+        gpus: log1p(gpus),
+        modelSize: log1p(modelSize),
+        batchSize: log1p(batchSize)
+    };
+    let powerLora = loraPower.intercept;
+    for (let term in loraPower.coefficients) {
+        let val = 1;
+        const keys = term.split(" ");
+        for (let k of keys) {
+            if (k.endsWith("^2")) {
+                const base = k.replace("^2", "");
+                val *= power_input[base] * power_input[base];
+            } else {
+                val *= power_input[k];
+            }
+        }
+        powerLora += loraPower.coefficients[term] * val;
+    }
+    powerLora = Math.max(powerLora, 0);
+    const totalEnergyLora = resultLora * powerLora * gpus / 3600 / 1000;
+
+    
+    let powerGraph = graphragInferencePower.intercept;
+    const inputGraphPower = {
+        gpus: log_input.gpus,
+        modelSize: log_input.modelSize
+    };
+    for (let term in graphragInferencePower.coefficients) {
+        let val = 1;
+        const keys = term.split(" ");
+        for (let k of keys) {
+            if (k.endsWith("^2")) {
+                const base = k.replace("^2", "");
+                val *= inputGraphPower[base] * inputGraphPower[base];
+            } else {
+                val *= inputGraphPower[k];
+            }
+        }
+        powerGraph += graphragInferencePower.coefficients[term] * val;
+    }
+    powerGraph = Math.max(powerGraph, 0);
+    const energyGraph = resultGraph * powerGraph * gpus / 3600 / 1000;
+
     document.getElementById("result1").innerHTML =
-        `✅ LoRA 运行时间：<b>${resultLora}</b> 秒<br>✅ GraphRAG 运行时间：<b>${resultGraph}</b> 秒`;
+        `✅ LoRA 运行时间：<b>${resultLora.toFixed(2)}</b> 秒<br>` +
+        `⚡ LoRA 单卡功率：<b>${powerLora.toFixed(1)}</b> W<br>` +
+        `🔋 LoRA 总能耗：<b>${totalEnergyLora.toFixed(4)}</b> kWh<br>` +
+        `✅ GraphRAG 运行时间：<b>${resultGraph.toFixed(2)}</b> 秒<br>` +
+        `⚡ GraphRAG 单卡功率：<b>${powerGraph.toFixed(1)}</b> W<br>` +
+        `🔋 GraphRAG 总能耗：<b>${energyGraph.toFixed(4)}</b> kWh`;
 }
+
 
 function predictInference() {
     const gpus = parseFloat(document.getElementById("gpus2").value);
@@ -111,8 +167,30 @@ function predictInference() {
     };
     const throughput = predict(models.inference, log_input);
     const time = tokens / throughput;
+    
+    const power_input = {
+        gpus: log_input.gpus,
+        modelSize: log_input.modelSize
+    };
+    let powerInfer = graphragInferencePower.intercept;
+    for (let term in graphragInferencePower.coefficients) {
+        let val = 1;
+        const keys = term.split(" ");
+        for (let k of keys) {
+            if (k.endsWith("^2")) {
+                const base = k.replace("^2", "");
+                val *= power_input[base] * power_input[base];
+            } else {
+                val *= power_input[k];
+            }
+        }
+        powerInfer += graphragInferencePower.coefficients[term] * val;
+    }
+    powerInfer = Math.max(powerInfer, 0);
+    const energyInfer = time * powerInfer * gpus / 3600 / 1000;
+
     document.getElementById("result2").innerHTML =
-        `✅ 吞吐量：<b>${throughput.toFixed(2)}</b> tok/s<br>✅ 估计生成时间：<b>${time.toFixed(2)}</b> 秒`;
+        `✅ 吞吐量：<b>${throughput.toFixed(2)}</b> tok/s<br>✅ 推理时长：<b>${time.toFixed(2)}</b> 秒<br>🔋 推理能耗：<b>${powerInfer.toFixed(1)}</b> W<br>🔋 推理能耗：<b>${energyInfer.toFixed(4)}</b> kWh`;
 }
 
 function predictTTFT() {
@@ -133,7 +211,7 @@ function predictTTFT() {
         parallel: log1p(parallel), in_token: log1p(inToken)
     };
     const result = predict(models.ttft, log_input).toFixed(3);
-    document.getElementById("result3").innerHTML = `✅ 预测 TTFT：<b>${result}</b> 秒`;
+    document.getElementById("result3").innerHTML = `✅ 预测首Token响应时间：<b>${result}</b> 秒`;
 }
 </script>
 </body>
