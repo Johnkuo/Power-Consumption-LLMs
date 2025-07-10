@@ -1,63 +1,74 @@
 
-# 大模型显存估算器（支持多精度 + LoRA + GraphRAG）
+# LLM Resource & Energy Prediction Models
 
-本项目是一个前端静态网页工具，用于估算大语言模型在不同精度配置下的显存占用情况，适用于以下部署场景：
-
-- 普通推理（Inference）
-- LoRA 微调（Fine-tuning with LoRA）
-- GraphRAG 推理增强（包含向量模型 bge-m3）
+本项目整理并集成了六个基于对数多项式特征 + 岭回归训练得到的预测模型，用于对大语言模型本地部署任务的运行时、吞吐量、响应时间与能耗进行估算。
 
 ---
 
-## 🔧 功能特色
+## 📦 模型列表
 
-✅ 支持四种主流精度选项：
-
-- FP32（4 Byte/param）  
-- FP16/BF16（2 Byte/param）  
-- INT8（1 Byte/param）  
-- INT4（0.5 Byte/param）  
-
-✅ 输出以下三类显存估算值：
-
-| 模式         | 内容说明                                               |
-|--------------|--------------------------------------------------------|
-| 推理显存     | 模型权重 + 激活 + 通信开销（固定 5+5 GB）              |
-| LoRA 微调    | 推理基础上叠加 LoRA adapter 参数 + 梯度 + 优化器状态 |
-| GraphRAG     | 推理基础上叠加 2GB 的向量模型显存（如 bge-m3）        |
+### 1. 最终_LoRA_runtime
+- **用途**：预测 LoRA 微调任务的总运行时间（单位：秒）
+- **输入特征**：
+  - GPUs（显卡数量）
+  - ModelSize（模型规模，单位：B）
+  - DataSize（训练数据规模，单位：K）
+  - BatchSize（训练批次大小）
+- **输出**：运行时间（秒）
 
 ---
 
-## 🚀 使用方法
-
-1. 打开 [`index.html`](./index.html) 文件；
-2. 输入你希望估算的模型规模（单位：Billion 参数量，如 7、13、70）；
-3. 点击“计算显存”；
-4. 页面将展示所有精度下的三类显存估算结果；
-
----
-
-## 🌐 在线访问（GitHub Pages）
-
-你可以通过下方链接在线访问此工具（需启用 GitHub Pages）：
-
-```
-https://<你的GitHub用户名>.github.io/<你的仓库名>/
-```
-
-> 如果你尚未启用 GitHub Pages，请进入仓库 Settings → Pages，选择 `main` 分支 和 `/(root)` 或 `/docs`，即可部署。
+### 2. 最终_GraphRAG_runtime
+- **用途**：预测 GraphRAG 任务的运行时长（单位：秒）
+- **输入特征**：
+  - GPUs
+  - ModelSize
+  - DataSize
+- **输出**：运行时间（秒）
 
 ---
 
-## 📁 文件结构
-
-```
-├── index.html   # 主页面，上传到 GitHub Pages 即可使用
-└── README.md    # 项目说明文档
-```
+### 3. 最终_推理_吞吐量
+- **用途**：预测推理任务的 Output Token 吞吐量（单位：tok/s）
+- **输入特征**：
+  - GPUs
+  - ModelSize
+  - 并发度 Parallel
+- **输出**：吞吐量（tok/s）
 
 ---
 
-## 📜 License
+### 4. 最终_推理_ttft
+- **用途**：预测推理任务的首 Token 响应时间（单位：秒）
+- **输入特征**：
+  - GPUs
+  - ModelSize
+  - 并发度 Parallel
+  - 输入 Token 数 in_token
+- **输出**：TTFT（秒）
 
-本工具由你自定义逻辑实现，若引用请注明出处。代码可自由部署与扩展。
+---
+
+### 5. 最终_LoRA_power
+- **用途**：预测 LoRA 微调任务的单卡功耗（单位：W）
+- **输入特征**：
+  - GPUs
+  - ModelSize
+  - BatchSize
+- **输出**：瞬时功耗（W）
+
+---
+
+### 6. 最终_GraphRAG&Inference_power
+- **用途**：预测 GraphRAG 和推理任务的单卡功耗（单位：W）
+- **输入特征**：
+  - GPUs
+  - ModelSize
+- **输出**：瞬时功耗（W）
+
+---
+
+## 📁 文件说明
+
+- `llm_prediction_suite_v3_final_allrestored_fully.html`：最终版 HTML 工具页面，集成所有模型与计算逻辑
+- `llm_final_model_parameters.json`：六个模型的完整参数文件，可用于还原预测逻辑
